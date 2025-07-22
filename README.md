@@ -59,7 +59,7 @@ find-id.exe def ./MyProject
 
 ### 🔧 输出样式示例
 
-#### `--mode mediaid`
+#### `--mode media-id`
 
 ```txt
 MediaID: 2309123 | Tag: Sound | Name: Footstep | ID: {guid} | Language: SFX | AudioFile: footstep.wav
