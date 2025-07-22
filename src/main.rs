@@ -141,7 +141,7 @@ fn search_guid(query: &str, contents: &str) -> Vec<MatchInfo> {
                 tag: node.tag_name().name().to_string(),
                 name: node.attribute("Name").unwrap_or("?").to_string(),
                 id: id.to_string(),
-                short_id: "".to_string(),
+                short_id: node.attribute("ShortID").unwrap_or("?").to_string(),
                 media_id: "".to_string(),
                 language: "".to_string(),
                 audio_file: "".to_string(),
