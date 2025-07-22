@@ -16,7 +16,7 @@ enum SearchMode {
     name = "find-id",
     author = "xmimu <1101588023@qq.com>",
     version = "0.1.0",
-    about = "在 *.wwu 文件中查找匹配的 MediaID、GUID 或 ShortID",
+    about = "在 *.wwu 文件中查找匹配的 MediaID、GUID 或 ShortID"
 )]
 struct Cli {
     /// 要查找的 ID 字符串（可部分匹配，不区分大小写）
@@ -105,12 +105,6 @@ fn search_media_id(query: &str, contents: &str) -> Vec<MatchInfo> {
         let id = node.attribute("ID").unwrap_or("?");
         if id.to_lowercase().contains(query) {
             let parent = node.parent_element().unwrap().parent_element().unwrap();
-            let mut language_node = parent
-                .children()
-                .filter(|n| n.tag_name().name().contains("Language"));
-            let mut audio_file_node = parent
-                .children()
-                .filter(|n| n.tag_name().name().contains("AudioFile"));
 
             results.push(MatchInfo {
                 tag: parent.tag_name().name().to_string(),
@@ -118,16 +112,16 @@ fn search_media_id(query: &str, contents: &str) -> Vec<MatchInfo> {
                 id: parent.attribute("ID").unwrap_or("?").to_string(),
                 short_id: "?".to_string(),
                 media_id: id.to_string(),
-                language: language_node
-                    .next()
-                    .unwrap()
-                    .text()
+                language: parent
+                    .children()
+                    .find(|n| n.tag_name().name().contains("Language"))
+                    .and_then(|n| n.text())
                     .unwrap_or("?")
                     .to_string(),
-                audio_file: audio_file_node
-                    .next()
-                    .unwrap()
-                    .text()
+                audio_file: parent
+                    .children()
+                    .find(|n| n.tag_name().name().contains("AudioFile"))
+                    .and_then(|n| n.text())
                     .unwrap_or("?")
                     .to_string(),
             });
