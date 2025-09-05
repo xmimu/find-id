@@ -1,200 +1,97 @@
-use clap::Parser;
-use glob::glob;
-use rayon::prelude::*;
-use roxmltree::Document;
-use std::{fs, path::PathBuf};
+// Prevent console window in addition to Slint window in Windows release builds when, e.g., starting the app via file manager. Ignored on other platforms.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-#[derive(clap::ValueEnum, Clone, Debug)]
-enum SearchMode {
-    MediaID,
-    Guid,
-    ShortID,
-}
+use std::{collections::HashSet, path::PathBuf, thread};
 
-#[derive(Parser)]
-#[command(
-    name = "find-id",
-    author = "xmimu <1101588023@qq.com>",
-    version = "0.1.0",
-    about = "在 *.wwu 文件中查找匹配的 MediaID、GUID 或 ShortID"
-)]
-struct Cli {
-    /// 要查找的 ID 字符串（可部分匹配，不区分大小写）
-    id: String,
+use find_id_ui::{Config, MatchInfo, find_id};
+use rfd::FileDialog;
+use slint::{ModelRc, SharedString, VecModel};
 
-    /// 要搜索的文件夹路径（包含 .wproj 文件）
-    #[arg(value_parser = is_path_valid)]
-    path: PathBuf,
+slint::include_modules!();
 
-    #[arg(long, short, value_enum, default_value = "guid")]
-    mode: SearchMode,
-}
+fn load_config(ui: &MainWindow, config_file: &str) {
+    let mut config: Config = Config::new();
 
-#[derive(Debug)]
-struct MatchInfo {
-    tag: String,
-    name: String,
-    id: String,
-    short_id: String,
-    media_id: String,
-    language: String,
-    audio_file: String,
-}
-
-fn is_path_valid(path: &str) -> Result<PathBuf, String> {
-    let path = PathBuf::from(path);
-
-    if !path.is_dir() {
-        return Err(format!(
-            "Path '{}' is not a valid directory",
-            path.display()
-        ));
+    if let Ok(c) = Config::load(config_file) {
+        config = c;
     }
-
-    let has_wproj = path
-        .read_dir()
-        .map_err(|e| format!("Failed to read directory '{}': {}", path.display(), e))?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .any(|p| p.is_file() && p.extension().map_or(false, |ext| ext == "wproj"));
-
-    if has_wproj {
-        Ok(path)
-    } else {
-        Err(format!(
-            "No '.wproj' files found in directory '{}'",
-            path.display()
-        ))
-    }
+    ui.set_path(SharedString::from(&config.path));
+    ui.set_check_guid(config.check_guid);
+    ui.set_check_short_id(config.check_short_id);
+    ui.set_check_media_id(config.check_media_id);
 }
 
-fn find_id(query: &str, path: &str, mode: &SearchMode) -> Vec<MatchInfo> {
-    let query = query.to_lowercase();
-    let pattern = format!("{}/**/*.wwu", path);
-    let entries: Vec<PathBuf> = glob(&pattern)
-        .expect("Failed to read glob pattern")
-        .filter_map(Result::ok)
-        .collect();
+fn save_config(ui: &MainWindow, config_file: &str) -> Result<(), std::io::Error> {
+    let mut config: Config = Config::new();
+    config.path = ui.get_path().to_string();
+    config.check_guid = ui.get_check_guid();
+    config.check_short_id = ui.get_check_short_id();
+    config.check_media_id = ui.get_check_media_id();
+    config.save(config_file)
+}
 
-    let results: Vec<MatchInfo> = entries
-        .par_iter()
-        .flat_map_iter(|p| {
-            let contents = match fs::read_to_string(p) {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("读取文件失败：{} {}", p.display(), e);
-                    return Vec::new();
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config_file = "config.json";
+    let ui = MainWindow::new()?;
+    let ui_weak = ui.as_weak();
+
+    load_config(&ui, config_file);
+
+    ui.on_run_browser_path({
+        let ui_weak = ui_weak.clone();
+        move || {
+            let path = FileDialog::new()
+                .add_filter("wproj", &["wproj"])
+                .pick_file();
+            if let Some(path) = path {
+                if let Some(ui) = ui_weak.upgrade() {
+                    ui.set_path(SharedString::from(path.to_string_lossy().to_string()));
                 }
-            };
-            match mode {
-                SearchMode::MediaID => search_media_id(&query, &contents),
-                SearchMode::Guid => search_guid(&query, &contents),
-                SearchMode::ShortID => search_short_id(&query, &contents),
             }
-        })
-        .collect();
-
-    results
-}
-
-fn search_media_id(query: &str, contents: &str) -> Vec<MatchInfo> {
-    let doc = Document::parse(contents).unwrap();
-    let mut results = Vec::new();
-
-    for node in doc.descendants().filter(|n| n.has_tag_name("MediaID")) {
-        let id = node.attribute("ID").unwrap_or("?");
-        if id.to_lowercase().contains(query) {
-            let parent = node.parent_element().unwrap().parent_element().unwrap();
-
-            results.push(MatchInfo {
-                tag: parent.tag_name().name().to_string(),
-                name: parent.attribute("Name").unwrap_or("?").to_string(),
-                id: parent.attribute("ID").unwrap_or("?").to_string(),
-                short_id: "?".to_string(),
-                media_id: id.to_string(),
-                language: parent
-                    .children()
-                    .find(|n| n.tag_name().name().contains("Language"))
-                    .and_then(|n| n.text())
-                    .unwrap_or("?")
-                    .to_string(),
-                audio_file: parent
-                    .children()
-                    .find(|n| n.tag_name().name().contains("AudioFile"))
-                    .and_then(|n| n.text())
-                    .unwrap_or("?")
-                    .to_string(),
-            });
         }
-    }
-    results
-}
+    });
 
-fn search_guid(query: &str, contents: &str) -> Vec<MatchInfo> {
-    let doc = Document::parse(contents).unwrap();
-    let mut results = Vec::new();
+    ui.on_run_query({
+        let ui_weak = ui_weak.clone();
+        move |path, query, check_guid, check_short_id, check_media_id| {
+            let ui_weak = ui_weak.clone();
+            save_config(&ui_weak.unwrap(), config_file).unwrap();
 
-    for node in doc.descendants().filter(|n| n.has_attribute("ID")) {
-        let id = node.attribute("ID").unwrap_or("?");
-        if id.to_lowercase().contains(query) {
-            results.push(MatchInfo {
-                tag: node.tag_name().name().to_string(),
-                name: node.attribute("Name").unwrap_or("?").to_string(),
-                id: id.to_string(),
-                short_id: "".to_string(),
-                media_id: "".to_string(),
-                language: "".to_string(),
-                audio_file: "".to_string(),
-            });
-        }
-    }
-    results
-}
-
-fn search_short_id(query: &str, contents: &str) -> Vec<MatchInfo> {
-    let doc = Document::parse(contents).unwrap();
-    let mut results = Vec::new();
-
-    for node in doc.descendants().filter(|n| n.has_attribute("ShortID")) {
-        let short_id = node.attribute("ShortID").unwrap_or("?");
-        if short_id.to_lowercase().contains(query) {
-            results.push(MatchInfo {
-                tag: node.tag_name().name().to_string(),
-                name: node.attribute("Name").unwrap_or("?").to_string(),
-                id: node.attribute("ID").unwrap_or("?").to_string(),
-                short_id: short_id.to_string(),
-                media_id: "".to_string(),
-                language: "".to_string(),
-                audio_file: "".to_string(),
-            });
-        }
-    }
-    results
-}
-
-fn main() {
-    let args = Cli::parse();
-
-    let results = find_id(&args.id, args.path.to_str().unwrap(), &args.mode);
-
-    match &args.mode {
-        SearchMode::MediaID => {
-            for r in &results {
-                println!(
-                    "MediaID: {} | Tag: {} | Name: {} | ID: {} | Language: {} | AudioFile: {}",
-                    r.media_id, r.tag, r.name, r.id, r.language, r.audio_file
+            thread::spawn(move || {
+                // 查询处理
+                let p = PathBuf::from(&path.to_string())
+                    .parent()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string();
+                let result = find_id(
+                    &query.to_string(),
+                    &p,
+                    check_guid,
+                    check_short_id,
+                    check_media_id,
                 );
-            }
-        }
-        _ => {
-            for r in &results {
-                println!(
-                    "Tag: {} | Name: {} | ID: {} | ShortID: {}",
-                    r.tag, r.name, r.id, r.short_id
-                );
-            }
-        }
-    }
 
-    println!("共匹配到 {} 条结果", results.len());
+                // 去除重复项
+                let set: HashSet<MatchInfo> = result.into_iter().collect();
+                let data: Vec<SharedString> = set
+                    .into_iter()
+                    .map(|x| SharedString::from(x.to_string()))
+                    .collect();
+
+                // 更新 UI
+                slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = ui_weak.upgrade() {
+                        let model = ModelRc::new(VecModel::from(data));
+                        ui.set_table_data(model);
+                    }
+                })
+                .unwrap();
+            });
+        }
+    });
+
+    ui.run()?;
+
+    Ok(())
 }

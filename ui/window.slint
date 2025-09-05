@@ -1,0 +1,139 @@
+
+import { Button, CheckBox, ScrollView } from "std-widgets.slint";
+
+export component MainWindow inherits Window {
+    min-width: 400px;
+    min-height: 400px;
+    title: "Find ID";
+    in-out property <string> path;
+    property <string> query;
+    in-out property <bool> check-guid: true;
+    in-out property <bool> check-short-id: false;
+    in-out property <bool> check-media-id: false;
+    in-out property <[string]> table-data;
+    callback run-query(string, string, bool, bool, bool);
+    callback run-browser-path();
+    VerticalLayout {
+        padding: 5px;
+        spacing: 5px;
+        HorizontalLayout {
+            spacing: 5px;
+            Text {
+                text: "Path:";
+                vertical-alignment: center;
+                width: 35px;
+            }
+
+            Rectangle {
+                background: #474545;
+                TextInput {
+                    vertical-alignment: center;
+                    font-size: 16px;
+                    text <=> root.path;
+                    read-only: true;
+                }
+            }
+
+            Button {
+                text: "...";
+                clicked => {
+                    run-browser-path();
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 5px;
+            Text {
+                text: "Input:";
+                vertical-alignment: center;
+                width: 35px;
+            }
+
+            Rectangle {
+                background: #474545;
+                height: 30px;
+                TextInput {
+                    vertical-alignment: center;
+                    font-size: 16px;
+                    text <=> root.query;
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 5px;
+            alignment: LayoutAlignment.start;
+            Text {
+                text: "Type:";
+                vertical-alignment: center;
+                width: 35px;
+            }
+
+            CheckBox {
+                text: "GUID";
+                checked <=> root.check-guid;
+            }
+
+            CheckBox {
+                text: "ShortID";
+                checked <=> root.check-short-id;
+            }
+
+            CheckBox {
+                text: "MediaID";
+                checked <=> root.check-media-id;
+            }
+        }
+
+        HorizontalLayout {
+            padding: 10px;
+            Button {
+                text: "Run";
+                clicked => {
+                    root.run-query(
+                        root.path, 
+                        root.query,
+                        root.check-guid,
+                        root.check-short-id,
+                        root.check-media-id)
+                }
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: white;
+        }
+
+        Text {
+            text: "Result:";
+        }
+
+        Rectangle {
+            // padding: 5px;
+            // background: #474545;
+            ScrollView {
+                VerticalLayout {
+                    alignment: LayoutAlignment.start;
+                    for i in root.table-data: HorizontalLayout {
+                        // alignment: LayoutAlignment.start;
+                        padding: 5px;
+                        Rectangle {
+                            background: #474545;
+                            // border-width: 1px;
+                            // border-color: white;
+                            height: 20px;
+                            TextInput {
+                                text: i;
+                                vertical-alignment: center;
+                                font-size: 16px;
+                                read-only: true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
